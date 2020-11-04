@@ -110,6 +110,12 @@ struct thread
     struct thread* parent;              /* Parent thread. */
     struct list child_list;		/* Child thread list. */
     struct list_elem child_elem;        /* Child element. */
+
+    /* for filesys */
+    struct file *file_list[128];
+    int fd_cnt;
+
+    struct lock file_lock;
 #endif
 
     /* Owned by thread.c. */

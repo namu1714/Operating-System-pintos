@@ -11,6 +11,8 @@
 #include "userprog/process.h"
 #include "devices/shutdown.h"
 #include "devices/input.h"
+#include "filesys/file.h"
+#include "filesys/filesys.h"
 
 static void syscall_handler (struct intr_frame *);
 
@@ -21,6 +23,15 @@ pid_t exec(const char *file);
 int wait(pid_t pid);
 int read (int fd, void *buffer, unsigned size);
 int write (int fd, const void *buffer, unsigned size);
+
+/* project 2 */
+bool create (const char *file, unsigned initial_size);
+bool remove (const char *file);
+int open (const char *file);
+int filesize (int fd);
+void seek (int fd, unsigned position);
+unsigned tell (int fd);
+void close (int fd);
 
 /* additional system calls */
 int fibonacci(int n);
@@ -64,13 +75,48 @@ syscall_handler (struct intr_frame *f)
     is_valid_vaddr(f->esp + 4);
     is_valid_vaddr(f->esp + 8);
     is_valid_vaddr(f->esp + 12);
+    is_valid_vaddr((const void *)*(uint32_t*)(f->esp + 8));
     f->eax = write(*(int*)(f->esp + 4), (void*)*(uint32_t*)(f->esp + 8), *(uint32_t*)(f->esp + 12));
     break;
   case SYS_READ:
     is_valid_vaddr(f->esp + 4);
     is_valid_vaddr(f->esp + 8);
     is_valid_vaddr(f->esp + 12);
+    is_valid_vaddr((const void *)*(uint32_t*)(f->esp + 8));
     f->eax = read(*(int*)(f->esp + 4), (void*)*(uint32_t*)(f->esp + 8), *(uint32_t*)(f->esp + 12));
+    break;
+  case SYS_CREATE:
+    is_valid_vaddr(f->esp + 4);
+    is_valid_vaddr(f->esp + 8);
+    is_valid_vaddr((const void *)*(uint32_t*)(f->esp + 4));
+    f->eax = create((const char *)*(uint32_t*)(f->esp + 4), *(uint32_t*)(f->esp + 8));
+    break;
+  case SYS_REMOVE:
+    is_valid_vaddr(f->esp + 4);
+    is_valid_vaddr((const void *)*(uint32_t*)(f->esp + 4));
+    f->eax = remove((const char *)*(uint32_t*)(f->esp + 4));
+    break;
+  case SYS_OPEN:
+    is_valid_vaddr(f->esp + 4);
+    is_valid_vaddr((const void *)*(uint32_t*)(f->esp + 4));
+    f->eax = open((const char *)*(uint32_t*)(f->esp + 4));
+    break;
+  case SYS_FILESIZE:
+    is_valid_vaddr(f->esp + 4);
+    f->eax = filesize(*(int*)(f->esp + 4));
+    break;
+  case SYS_SEEK:
+    is_valid_vaddr(f->esp + 4);
+    is_valid_vaddr(f->esp + 8);
+    seek(*(int*)(f->esp + 4), *(uint32_t*)(f->esp + 8));
+    break;
+  case SYS_TELL:
+    is_valid_vaddr(f->esp + 4);
+    f->eax = tell(*(int*)(f->esp + 4));
+    break;
+  case SYS_CLOSE:
+    is_valid_vaddr(f->esp + 4);
+    close(*(int*)(f->esp + 4));
     break;
   case SYS_FIBONACCI:
     is_valid_vaddr(f->esp + 4);
@@ -120,14 +166,26 @@ int wait(pid_t pid){
 int read (int fd, void *buffer, unsigned size)
 {
   uint8_t key;
-  int i, ret = -1;
+  int ret = -1;
+  struct file *f;
+  struct thread *t;
 
   if (fd == 0) { //standard input
-    for(i=0; i<(int)size; i++){
+    for(int i=0; i<(int)size; i++){
       key = input_getc();
       *(uint8_t*)(buffer + i) = key;
     }
     ret = size;
+  }
+  else{
+    t = thread_current();
+
+    lock_acquire(&t->file_lock); 
+    if(fd > 1 && fd < t->fd_cnt){ //fd check
+      f = t->file_list[fd];
+      ret = file_read(f, buffer, size);
+    }
+    lock_release(&t->file_lock);
   }
 
   return ret;
@@ -139,12 +197,89 @@ int read (int fd, void *buffer, unsigned size)
 int write (int fd, const void *buffer, unsigned size)
 {
   int ret = -1;
+  struct file *f;
+  struct thread *t;
+
   if (fd == 1) { //standard output
     putbuf(buffer, size);
     ret = size;
   }
+  else {
+    t = thread_current();
 
+    lock_acquire(&t->file_lock);
+    if(fd > 1 && fd < t->fd_cnt ){ //fd check
+      f = t->file_list[fd];
+      ret = file_write(f, buffer, size);
+    }
+    lock_release(&t->file_lock);
+  }
   return ret;
+}
+
+/* Creates a new file called file initially initial size bytes in size. */
+bool create (const char *file, unsigned initial_size)
+{
+  return filesys_create(file, initial_size);
+}
+
+/* Deletes the file called file. */
+bool remove (const char *file)
+{
+  return filesys_remove(file);
+}
+
+/* Opens the file called file. 
+ * Returns a nonnegative integer handle called a file descriptor. */
+int open (const char *file)
+{
+  struct thread *t = thread_current();
+  struct file *f = filesys_open(file);
+  int fd = -1;
+
+  if(f != NULL){
+    fd = t->fd_cnt;
+    t->file_list[t->fd_cnt++] = f;
+  }
+  return fd;
+}
+
+/* Returns the size, in bytes, of the file open as fd. */
+int filesize (int fd)
+{
+  struct file *f = thread_current()->file_list[fd];
+  return (int)file_length(f);
+}
+
+/* Changes the next byte to be read or written in open file fd to position. */
+void seek (int fd, unsigned position)
+{
+  struct file *f = thread_current()->file_list[fd];
+  file_seek(f, position);
+}
+
+/* Returns the position of the next byte to be read or written in open file fd. */
+unsigned tell (int fd)
+{
+  struct file *f = thread_current()->file_list[fd];
+  return file_tell(f);
+}
+
+/* Closes file descriptor fd. */
+void close (int fd)
+{
+  struct file *f;
+  struct thread *t = thread_current();
+
+  lock_acquire(&t->file_lock);
+  if(fd <= t->fd_cnt && fd > 1){ //check valid file
+    f = t->file_list[fd];
+    if(f != NULL){
+      file_close(f);
+    }
+    t->file_list[fd] = NULL; //make closed file NULL
+  }
+  lock_release(&t->file_lock);
 }
 
 /* Get nth fibonacci sequence number. */

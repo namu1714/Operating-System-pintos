@@ -482,6 +482,9 @@ init_thread (struct thread *t, const char *name, int priority)
   sema_init(&t->wait_sema, 0);
   sema_init(&t->mem_sema, 0);
   sema_init(&t->load_sema, 0);
+
+  t->fd_cnt = 2; //stdin, stdout
+  lock_init(&t->file_lock);
 #endif
 }
 
