@@ -1,6 +1,7 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <syscall-nr.h>
 #include "lib/user/syscall.h"
 
@@ -16,30 +17,6 @@
 
 static void syscall_handler (struct intr_frame *);
 
-/* project 1 */
-void halt(void);
-void exit(int status);
-pid_t exec(const char *file);
-int wait(pid_t pid);
-int read (int fd, void *buffer, unsigned size);
-int write (int fd, const void *buffer, unsigned size);
-
-/* project 2 */
-bool create (const char *file, unsigned initial_size);
-bool remove (const char *file);
-int open (const char *file);
-int filesize (int fd);
-void seek (int fd, unsigned position);
-unsigned tell (int fd);
-void close (int fd);
-
-/* additional system calls */
-int fibonacci(int n);
-int max_of_four_int(int a, int b, int c, int d);
-
-/* check invalid memory */
-void is_valid_vaddr(const void *vaddr);
-
 void
 syscall_init (void) 
 {
@@ -53,6 +30,7 @@ syscall_handler (struct intr_frame *f)
   //hex_dump((uintptr_t)(f->esp), f->esp, 100, true);
   
   is_valid_vaddr(f->esp);
+  is_valid_vaddr(f->esp + 1); //check next byte
 
   switch(*(uint32_t *)(f->esp)){
   case SYS_HALT:
@@ -183,6 +161,9 @@ int read (int fd, void *buffer, unsigned size)
     lock_acquire(&t->file_lock); 
     if(fd > 1 && fd < t->fd_cnt){ //fd check
       f = t->file_list[fd];
+      if(f == NULL)
+	exit(-1);
+
       ret = file_read(f, buffer, size);
     }
     lock_release(&t->file_lock);
@@ -210,6 +191,9 @@ int write (int fd, const void *buffer, unsigned size)
     lock_acquire(&t->file_lock);
     if(fd > 1 && fd < t->fd_cnt ){ //fd check
       f = t->file_list[fd];
+      if(f == NULL) 
+        exit(-1);
+
       ret = file_write(f, buffer, size);
     }
     lock_release(&t->file_lock);
@@ -235,11 +219,28 @@ int open (const char *file)
 {
   struct thread *t = thread_current();
   struct file *f = filesys_open(file);
+  bool executable = false;
   int fd = -1;
-
+  
   if(f != NULL){
     fd = t->fd_cnt;
     t->file_list[t->fd_cnt++] = f;
+
+    //check if it is executable file
+    if(!strcmp(t->name, file))
+      executable = true;
+
+    //search child list
+    struct list_elem *e;
+    struct list *list = &(t->child_list);
+    for(e = list_begin(list); e!= list_end(list); e = list_next(e)){
+      if(!strcmp(list_entry(e, struct thread, child_elem)->name, file)){
+        executable = true;
+        break;
+      }
+    }
+    if(executable)
+      file_deny_write(f); //denying write
   }
   return fd;
 }
@@ -247,8 +248,14 @@ int open (const char *file)
 /* Returns the size, in bytes, of the file open as fd. */
 int filesize (int fd)
 {
-  struct file *f = thread_current()->file_list[fd];
-  return (int)file_length(f);
+  struct thread *t = thread_current();
+  struct file *f = t->file_list[fd];
+
+  lock_acquire(&t->file_lock);
+  int size = (int)file_length(f);
+  lock_release(&t->file_lock);
+
+  return size;
 }
 
 /* Changes the next byte to be read or written in open file fd to position. */
@@ -317,7 +324,8 @@ int max_of_four_int(int a, int b, int c, int d){
 /* Check validity of user-provided pointer. 
  * Check if it uses kernel address space and if it is unmapped virtual memory. */
 void is_valid_vaddr (const void *vaddr){
-  if(!is_user_vaddr(vaddr) || pagedir_get_page(thread_current()->pagedir, vaddr) == NULL){
+  if(!is_user_vaddr(vaddr) || pagedir_get_page(thread_current()->pagedir, vaddr) == NULL)
+  {
     exit(-1);
   }
 }

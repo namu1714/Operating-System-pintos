@@ -88,7 +88,8 @@ start_process (void *file_name_)
     thread_current()->parent->load_success = false;
     /* Send signal to parent thread that load is finished. */ 
     sema_up(&thread_current()->parent->load_sema);
-    process_exit();
+    //process_exit();
+    exit(-1);
   }
   else {
     thread_current()->parent->load_success = true;
