@@ -175,6 +175,11 @@ process_exit (void)
 
   sema_up(&(cur->wait_sema));
   sema_down(&(cur->mem_sema));
+
+
+  for(int i=2; i<cur->fd_cnt; i++){
+    close(i);
+  }
 }
 
 /* Sets up the CPU for running user code in the current
