@@ -1,2 +1,2 @@
 # Operating-System-pintos
-2020 OS Pintos Project Sogang
+2020 OS Pintos Project
