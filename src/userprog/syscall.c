@@ -251,11 +251,7 @@ int filesize (int fd)
   struct thread *t = thread_current();
   struct file *f = t->file_list[fd];
 
-  lock_acquire(&t->file_lock);
-  int size = (int)file_length(f);
-  lock_release(&t->file_lock);
-
-  return size;
+  return (int)file_length(f);
 }
 
 /* Changes the next byte to be read or written in open file fd to position. */
@@ -279,7 +275,7 @@ void close (int fd)
   struct thread *t = thread_current();
 
   lock_acquire(&t->file_lock);
-  if(fd <= t->fd_cnt && fd > 1){ //check valid file
+  if(fd < t->fd_cnt && fd > 1){ //check valid file
     f = t->file_list[fd];
     if(f != NULL){
       file_close(f);
