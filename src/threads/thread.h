@@ -7,6 +7,11 @@
 
 #include "threads/synch.h"
 
+#ifndef USERPROG
+/* Project #3. */
+extern bool thread_prior_aging;
+#endif
+
 /* States in a thread's life cycle. */
 enum thread_status
   {
@@ -118,6 +123,11 @@ struct thread
     struct lock file_lock;
 #endif
 
+    /* for Thread Project */
+    int64_t wakeup_time; 			/* Time for the sleeping thread to wake up */
+    int nice;
+    int recent_cpu;
+    
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
@@ -146,6 +156,14 @@ const char *thread_name (void);
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
 
+/* #Project 3. */
+void thread_sleep (int64_t ticks);
+void thread_wakeup (int64_t ticks);
+
+bool thread_cmp_priority(const struct list_elem *a, const struct list_elem *b, void *aux); //list_less_func
+int thread_max_priority(void);
+void thread_aging(void);
+
 /* Performs some operation on thread t, given auxiliary data AUX. */
 typedef void thread_action_func (struct thread *t, void *aux);
 void thread_foreach (thread_action_func *, void *);
@@ -157,5 +175,11 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+int thread_cal_priority (struct thread *t);
+void thread_update_priority (void);
+int thread_cal_recent_cpu (struct thread *t);
+void thread_update_recent_cpu (void);
+void thread_update_load_avg (void);
 
 #endif /* threads/thread.h */
